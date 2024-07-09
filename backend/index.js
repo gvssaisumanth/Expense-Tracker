@@ -3,6 +3,11 @@ import http from "http";
 import cors from "cors";
 import dotenv from "dotenv";
 
+import passport from "passport";
+import session from "express-session";
+import connectMongo, { MongoDBStore } from "connect-mongodb-session";
+import { buildContext } from "graphql-passport";
+
 import { ApolloServer } from "@apollo/server";
 import { expressMiddleware } from "@apollo/server/express4";
 import { ApolloServerPluginDrainHttpServer } from "@apollo/server/plugin/drainHttpServer";
@@ -10,14 +15,48 @@ import { ApolloServerPluginDrainHttpServer } from "@apollo/server/plugin/drainHt
 import { meregedResolvers } from "./resolvers/index.js";
 import { mergedTypeDefs } from "./typeDefs/index.js";
 import { connectDB } from "./db/connectDB.js";
+import { configurePassport } from "./passport/passport.config.js";
 
 dotenv.config();
+configurePassport();
 
 const app = express();
 // Our httpServer handles incoming requests to our Express app.
 // Below, we tell Apollo Server to "drain" this httpServer,
 // enabling our servers to shut down gracefully.
 const httpServer = http.createServer(app);
+
+const MongoDBStore = connectMongo(session);
+
+const store = new MongoDBStore({
+  uri: process.env.MONGO_URI,
+  collection: "sessions",
+});
+
+store.on("error", (err) => console.log(err));
+
+/**
+ * Mounting a session Middle ware
+ * @param resave : This option specifies whether to save the session to the store on every request
+ * @param saveUninitialized: Option specifies whether to save uninitialized sessions
+ * @param Cookie.httpOnly: this option prevents the Cross-Site Scripting (XSS) attacks
+ */
+
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      maxAge: 1000 * 60 * 24 * 7,
+      httpOnly: true,
+    },
+    store: store,
+  }),
+);
+
+app.use(passport.initialize());
+app.use(passport.session());
 
 const server = new ApolloServer({
   typeDefs: mergedTypeDefs,
@@ -28,15 +67,21 @@ const server = new ApolloServer({
 // Ensure we wait for our server to start
 await server.start();
 
+/**
+ * expressMiddleware accepts the same arguments:
+ * An Apollo Server instance and optional configuration options
+ * @param expressMiddleWare.context : It is used as an argument by the resolvers (as 3rd Argument)
+ */
 app.use(
   "/",
-  cors(),
+  cors({
+    origin: process.env.REACT_URL,
+    credentials: true,
+  }),
   express.json(),
-  // expressMiddleware accepts the same arguments:
-  // an Apollo Server instance and optional configuration options
   expressMiddleware(server, {
-    context: async ({ req }) => req,
-  })
+    context: async ({ req, res }) => buildContext({ req, res }),
+  }),
 );
 
 // Modified server startup
