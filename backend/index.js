@@ -26,8 +26,15 @@ const app = express();
 // enabling our servers to shut down gracefully.
 const httpServer = http.createServer(app);
 
+/** Session Storage */
 const MongoDBStore = connectMongo(session);
 
+/**
+ * When using MongoDB as a session store with Express and the express-session middleware,
+ * you need a way to persist session data in the database. The MongoDBStore provides this functionality
+ * Collection parameter tells the MongoDB which collection to use for storing data
+ *
+ */
 const store = new MongoDBStore({
   uri: process.env.MONGO_URI,
   collection: "sessions",
